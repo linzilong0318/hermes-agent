@@ -1,0 +1,24 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Nacos registrar finish script.  Companion to ./run.
+#
+# When NACOS_SERVER_ADDRESSES is unset (or empty), ./run exits 0 immediately.
+# Without this finish script, s6-supervise would just restart the run script
+# in a tight loop.  By exiting 125 here, we tell s6-supervise "this service
+# has permanently failed; do not restart" — equivalent to s6-svc -O.
+# The supervise slot reports as down, matching reality.
+#
+# When NACOS is configured and the run script later exits or is killed (e.g.
+# nacos_daemon.py crashes), we want s6-supervise to restart it — so we exit
+# non-125 in that case.
+
+case "${NACOS_SERVER_ADDRESSES:-}" in
+    "")
+        # Nacos not configured — permanent-failure marker.
+        exit 125
+        ;;
+    *)
+        # Nacos configured — let s6-supervise restart on crash.
+        exit 0
+        ;;
+esac

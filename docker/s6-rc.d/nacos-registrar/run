@@ -1,0 +1,29 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Nacos service registration and heartbeat daemon.
+#
+# Runs as a supervised longrun service under s6-overlay.
+# When NACOS_SERVER_ADDRESSES is unset (or empty), exits cleanly and the
+# companion finish script returns 125 — s6-supervise marks the slot as
+# permanently down and never restarts it.  See docker/s6-rc.d/nacos-registrar/finish.
+#
+# Environment variables consumed by nacos_daemon.py:
+#   NACOS_SERVER_ADDRESSES, NACOS_NAMESPACE, NACOS_GROUP_NAME,
+#   NACOS_SERVICE_NAME, NACOS_SERVICE_PORT, NACOS_USERNAME, NACOS_PASSWORD
+
+if [ -z "${NACOS_SERVER_ADDRESSES:-}" ]; then
+    exit 0
+fi
+
+# with-contenv repopulates HOME from /init as /root by default; reset it
+# so HOME-anchored state lands under /opt/data.
+export HOME=/opt/data
+
+cd /opt/data || exit 1
+# shellcheck disable=SC1091
+. /opt/hermes/.venv/bin/activate
+
+# Drop privileges when running as root (s6-overlay default).
+[ "$(id -u)" = 0 ] && set -- s6-setuidgid hermes "$@"
+
+exec "$@" python /opt/hermes/docker/nacos_daemon.py

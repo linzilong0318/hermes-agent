@@ -1811,7 +1811,7 @@ class APIServerAdapter(BasePlatformAdapter):
             "output_tokens", "cache_read_tokens", "cache_write_tokens",
             "reasoning_tokens", "estimated_cost_usd", "actual_cost_usd",
             "api_call_count", "parent_session_id", "last_active", "preview",
-            "_lineage_root_id",
+            "_lineage_root_id", "project_id", "business_user_id",
         )
         payload = {key: session.get(key) for key in safe_keys if key in session}
         # Avoid exposing full system prompts/model_config through the client API;
@@ -1871,12 +1871,16 @@ class APIServerAdapter(BasePlatformAdapter):
         offset = self._parse_nonnegative_int(request.query.get("offset"), default=0, maximum=1_000_000)
         source = request.query.get("source") or None
         include_children = _coerce_request_bool(request.query.get("include_children"), default=False)
+        project_id = request.query.get("project_id") or None
+        business_user_id = request.query.get("business_user_id") or None
         sessions = db.list_sessions_rich(
             source=source,
             limit=limit,
             offset=offset,
             include_children=include_children,
             order_by_last_active=True,
+            project_id=project_id,
+            business_user_id=business_user_id,
         )
         return web.json_response({
             "object": "list",
@@ -1913,7 +1917,19 @@ class APIServerAdapter(BasePlatformAdapter):
         system_prompt = body.get("system_prompt")
         if system_prompt is not None and not isinstance(system_prompt, str):
             return web.json_response(_openai_error("system_prompt must be a string", code="invalid_system_prompt"), status=400)
-        db.create_session(session_id, "api_server", model=str(model) if model else None, system_prompt=system_prompt)
+        project_id = body.get("project_id")
+        business_user_id = body.get("business_user_id")
+        if project_id is not None and not isinstance(project_id, str):
+            return web.json_response(_openai_error("project_id must be a string", code="invalid_project_id"), status=400)
+        if business_user_id is not None and not isinstance(business_user_id, str):
+            return web.json_response(_openai_error("business_user_id must be a string", code="invalid_business_user_id"), status=400)
+        db.create_session(
+            session_id, "api_server",
+            model=str(model) if model else None,
+            system_prompt=system_prompt,
+            project_id=project_id,
+            business_user_id=business_user_id,
+        )
         title = body.get("title")
         if title is not None:
             try:
@@ -4023,13 +4039,50 @@ class APIServerAdapter(BasePlatformAdapter):
         user_message: Any,
         result: Dict[str, Any],
     ) -> int:
-        """Detect transcript-shaped result["messages"] and return turn start."""
+        """Detect transcript-shaped result["messages"] and return turn start.
+
+        Strategy (ordered by priority):
+
+        1. **Reverse-scan for the current user message.**  Walk backwards
+           through ``agent_messages`` to find the last user-role message
+           whose content matches ``user_message``.  This is the single
+           most reliable turn boundary: context compression rewrites
+           earlier history (replacing old turns with a summary), so a
+           prefix-match against the pre-run ``conversation_history``
+           snapshot can fail after a mid-run compaction.  The current
+           user_message is always in the preserved tail (guaranteed by
+           ``_find_tail_cut_by_tokens`` → ``_ensure_last_user_message_in_tail``),
+           so reverse-scanning finds it regardless of upstream rewrites.
+
+        2. **Prefix-match fallbacks (pre-compaction transcript shape).**
+           For backward compatibility and the common no-compression path:
+           match ``conversation_history + [user_message]`` or bare
+           ``conversation_history`` against the start of
+           ``agent_messages``.
+        """
         agent_messages = result.get("messages") if isinstance(result, dict) else None
         if not isinstance(agent_messages, list) or not agent_messages:
             return 0
 
-        prior = list(conversation_history)
+        # ── Strategy 1: reverse-scan for the current user message ──────
+        # Walk from the end so we surface the *most recent* match, which
+        # is the message that triggered the current turn.  This is
+        # correct even when compression rewrites the prefix of
+        # agent_messages so it no longer matches conversation_history.
         current_user = {"role": "user", "content": user_message}
+        for i in range(len(agent_messages) - 1, -1, -1):
+            msg = agent_messages[i]
+            if (
+                isinstance(msg, dict)
+                and msg.get("role") == "user"
+                and msg.get("content") == user_message
+            ):
+                return i
+
+        # ── Strategy 2: prefix-match fallbacks ─────────────────────────
+        # Reachable when the caller passes an empty/truncated
+        # user_message that doesn't appear verbatim in agent_messages.
+        prior = list(conversation_history)
         expected_prefix = prior + [current_user]
         if agent_messages[:len(expected_prefix)] == expected_prefix:
             return len(expected_prefix)

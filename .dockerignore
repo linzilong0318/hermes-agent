@@ -106,3 +106,14 @@ acp_registry/
 .gitattributes
 .hadolint.yaml
 .mailmap
+
+# 不需要的skills
+skills/apple/
+skills/data-science/
+skills/dogfood/
+skills/email/
+skills/github/
+skills/media/
+skills/mlops/
+skills/smart-home/
+skills/yuanbao/

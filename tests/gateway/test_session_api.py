@@ -408,6 +408,231 @@ async def test_session_chat_stream_run_completed_carries_turn_transcript(adapter
     assert any(m.get("tool_calls") for m in messages)
 
 
+@pytest.mark.asyncio
+async def test_turn_transcript_resilient_to_compression_prefix_mismatch(adapter, session_db):
+    """When context compression rewrites the conversation history prefix, the
+    run.completed SSE event must still only contain the *current turn's*
+    messages — not leak every historical message.
+
+    Reproduces the bug where a compressed message list no longer starts with
+    the pre-run conversation_history, causing _response_messages_turn_start_index
+    to return 0 (fallback) and turn = agent_messages[0:].
+    """
+    import json as _json
+
+    session_id = session_db.create_session("compressed-session", "api_server")
+
+    # Pre-populate the DB with "long history" — the chat handler loads this
+    # as conversation_history.
+    session_db.append_message(session_id, "user", "old question 1")
+    session_db.append_message(session_id, "assistant", "old answer 1")
+    session_db.append_message(session_id, "user", "old question 2")
+    session_db.append_message(session_id, "assistant", "old answer 2")
+
+    async def fake_run(**kwargs):
+        # Simulate a compression scenario: the old history was summarized,
+        # so result["messages"] starts with a compression summary, NOT the
+        # raw conversation_history loaded from the DB.
+        stream_cb = kwargs.get("stream_delta_callback")
+        if stream_cb:
+            stream_cb("Final answer after compression.")
+        result = {
+            "final_response": "Final answer after compression.",
+            "session_id": session_id,
+            "messages": [
+                # ── compression summary replaces old history ──
+                {
+                    "role": "assistant",
+                    "content": (
+                        "[CONTEXT COMPACTION] Earlier turns were summarized. "
+                        "The user asked about old topics which were resolved."
+                    ),
+                    "_compressed_summary": True,
+                },
+                # ── current turn ──
+                {"role": "user", "content": "new question after long context"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "search_files", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "content": "results found",
+                    "tool_call_id": "call_1",
+                    "tool_name": "search_files",
+                },
+                {"role": "assistant", "content": "Final answer after compression."},
+            ],
+        }
+        return result, {"total_tokens": 8}
+
+    app = _create_session_app(adapter)
+    with patch.object(adapter, "_run_agent", side_effect=fake_run):
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.post(
+                f"/api/sessions/{session_id}/chat/stream",
+                json={"message": "new question after long context"},
+            )
+            assert resp.status == 200
+            body = await resp.text()
+
+    # Extract run.completed payload
+    run_completed_payload = None
+    for block in body.split("\n\n"):
+        if "event: run.completed" in block:
+            for line in block.splitlines():
+                if line.startswith("data: "):
+                    run_completed_payload = _json.loads(line[len("data: "):])
+            break
+    assert run_completed_payload is not None, body
+    messages = run_completed_payload.get("messages")
+    assert isinstance(messages, list) and messages, run_completed_payload
+
+    # ── Key assertions ────────────────────────────────────────────
+    # All messages must be assistant or tool — no user-role leak.
+    assert all(m.get("role") in ("assistant", "tool") for m in messages), (
+        f"user messages leaked into turn transcript: {messages}"
+    )
+    # The compression summary must NOT appear (it's pre-turn history).
+    contents = [m.get("content") for m in messages]
+    assert not any("CONTEXT COMPACTION" in (c or "") for c in contents), (
+        f"compression summary leaked: {messages}"
+    )
+    # The current-turn assistant response MUST appear.
+    assert "Final answer after compression." in contents
+    # The tool call and result MUST be present.
+    assert any(m.get("tool_calls") for m in messages), (
+        f"tool call missing from transcript: {messages}"
+    )
+    assert any(
+        m.get("role") == "tool" and m.get("content") == "results found"
+        for m in messages
+    ), f"tool result missing from transcript: {messages}"
+
+
+@pytest.mark.asyncio
+async def test_turn_transcript_handles_duplicate_user_message_text(adapter, session_db):
+    """When the same user text appears in both old history and the current turn,
+    the reverse-scan must find the LAST (current-turn) occurrence so the
+    transcript slice doesn't include history.
+    """
+    import json as _json
+
+    session_id = session_db.create_session("dup-text-session", "api_server")
+    # History contains the same text as the current user message.
+    session_db.append_message(session_id, "user", "repeat")
+    session_db.append_message(session_id, "assistant", "first answer")
+
+    async def fake_run(**kwargs):
+        stream_cb = kwargs.get("stream_delta_callback")
+        if stream_cb:
+            stream_cb("second answer")
+        result = {
+            "final_response": "second answer",
+            "session_id": session_id,
+            "messages": [
+                # ── old history ──
+                {"role": "user", "content": "repeat"},
+                {"role": "assistant", "content": "first answer"},
+                # ── current turn (same user text!) ──
+                {"role": "user", "content": "repeat"},
+                {"role": "assistant", "content": "second answer"},
+            ],
+        }
+        return result, {"total_tokens": 2}
+
+    app = _create_session_app(adapter)
+    with patch.object(adapter, "_run_agent", side_effect=fake_run):
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.post(
+                f"/api/sessions/{session_id}/chat/stream",
+                json={"message": "repeat"},
+            )
+            assert resp.status == 200
+            body = await resp.text()
+
+    run_completed_payload = None
+    for block in body.split("\n\n"):
+        if "event: run.completed" in block:
+            for line in block.splitlines():
+                if line.startswith("data: "):
+                    run_completed_payload = _json.loads(line[len("data: "):])
+            break
+    assert run_completed_payload is not None, body
+    messages = run_completed_payload.get("messages")
+    assert isinstance(messages, list) and messages, run_completed_payload
+
+    # Only the second (current-turn) assistant message should be present.
+    assert len(messages) == 1, (
+        f"expected exactly 1 turn message, got {len(messages)}: {messages}"
+    )
+    assert messages[0].get("content") == "second answer", messages
+    assert all(m.get("role") in ("assistant", "tool") for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_turn_transcript_normal_path_unchanged(adapter, session_db):
+    """Sanity check: the normal (no-compression) path still works correctly
+    after the reverse-scan strategy was added to _response_messages_turn_start_index.
+    """
+    import json as _json
+
+    session_id = session_db.create_session("normal-session", "api_server")
+    session_db.append_message(session_id, "user", "question 1")
+    session_db.append_message(session_id, "assistant", "answer 1")
+
+    async def fake_run(**kwargs):
+        stream_cb = kwargs.get("stream_delta_callback")
+        if stream_cb:
+            stream_cb("answer 2")
+        result = {
+            "final_response": "answer 2",
+            "session_id": session_id,
+            "messages": [
+                {"role": "user", "content": "question 1"},
+                {"role": "assistant", "content": "answer 1"},
+                # ── current turn ──
+                {"role": "user", "content": "question 2"},
+                {"role": "assistant", "content": "answer 2"},
+            ],
+        }
+        return result, {"total_tokens": 2}
+
+    app = _create_session_app(adapter)
+    with patch.object(adapter, "_run_agent", side_effect=fake_run):
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.post(
+                f"/api/sessions/{session_id}/chat/stream",
+                json={"message": "question 2"},
+            )
+            assert resp.status == 200
+            body = await resp.text()
+
+    run_completed_payload = None
+    for block in body.split("\n\n"):
+        if "event: run.completed" in block:
+            for line in block.splitlines():
+                if line.startswith("data: "):
+                    run_completed_payload = _json.loads(line[len("data: "):])
+            break
+    assert run_completed_payload is not None, body
+    messages = run_completed_payload.get("messages")
+    assert isinstance(messages, list) and messages, run_completed_payload
+
+    assert len(messages) == 1, (
+        f"expected exactly 1 turn message, got {len(messages)}: {messages}"
+    )
+    assert messages[0].get("content") == "answer 2", messages
+    assert all(m.get("role") in ("assistant", "tool") for m in messages)
+
+
 
 @pytest.mark.asyncio
 async def test_session_endpoints_require_auth_when_key_configured(auth_adapter):

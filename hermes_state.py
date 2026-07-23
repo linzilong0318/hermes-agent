@@ -761,6 +761,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     model TEXT,
     model_config TEXT,
     system_prompt TEXT,
+    project_id TEXT,
+    business_user_id TEXT,
     parent_session_id TEXT,
     started_at REAL NOT NULL,
     ended_at REAL,
@@ -908,6 +910,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_gateway_peer
     ON sessions(source, user_id, chat_id, chat_type, thread_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_handoff_state
     ON sessions(handoff_state, started_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_project_user
+    ON sessions(project_id, business_user_id, started_at DESC);
 """
 
 FTS_SQL = """
@@ -1760,6 +1764,8 @@ class SessionDB:
         thread_id: str = None,
         parent_session_id: str = None,
         cwd: str = None,
+        project_id: str = None,
+        business_user_id: str = None,
     ) -> None:
         """Insert a session row, enriching NULL metadata on conflict.
 
@@ -1783,9 +1789,11 @@ class SessionDB:
             conn.execute(
                 """INSERT INTO sessions (
                    id, source, user_id, session_key, chat_id, chat_type, thread_id,
-                   model, model_config, system_prompt, parent_session_id, cwd, started_at
+                   model, model_config, system_prompt,
+                   project_id, business_user_id,
+                   parent_session_id, cwd, started_at
                 )
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        model = COALESCE(sessions.model, excluded.model),
                        model_config = COALESCE(sessions.model_config, excluded.model_config),
@@ -1795,7 +1803,9 @@ class SessionDB:
                        chat_type = COALESCE(sessions.chat_type, excluded.chat_type),
                        thread_id = COALESCE(sessions.thread_id, excluded.thread_id),
                        parent_session_id = COALESCE(sessions.parent_session_id, excluded.parent_session_id),
-                       cwd = COALESCE(sessions.cwd, excluded.cwd)""",
+                       cwd = COALESCE(sessions.cwd, excluded.cwd),
+                       project_id = COALESCE(sessions.project_id, excluded.project_id),
+                       business_user_id = COALESCE(sessions.business_user_id, excluded.business_user_id)""",
                 (
                     session_id,
                     source,
@@ -1807,6 +1817,8 @@ class SessionDB:
                     model,
                     json.dumps(model_config) if model_config else None,
                     system_prompt,
+                    project_id,
+                    business_user_id,
                     parent_session_id,
                     cwd,
                     time.time(),
@@ -3357,6 +3369,8 @@ class SessionDB:
         id_query: str = None,
         search_query: str = None,
         compact_rows: bool = False,
+        project_id: str = None,
+        business_user_id: str = None,
     ) -> List[Dict[str, Any]]:
         """List sessions with preview (first user message) and last active timestamp.
 
@@ -3436,6 +3450,12 @@ class SessionDB:
             where_clauses.append("s.archived = 1")
         elif not include_archived:
             where_clauses.append("s.archived = 0")
+        if project_id is not None:
+            where_clauses.append("s.project_id = ?")
+            params.append(project_id)
+        if business_user_id is not None:
+            where_clauses.append("s.business_user_id = ?")
+            params.append(business_user_id)
 
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
