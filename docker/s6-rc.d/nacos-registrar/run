@@ -23,7 +23,12 @@ cd /opt/data || exit 1
 # shellcheck disable=SC1091
 . /opt/hermes/.venv/bin/activate
 
-# Drop privileges when running as root (s6-overlay default).
-[ "$(id -u)" = 0 ] && set -- s6-setuidgid hermes "$@"
-
-exec "$@" python /opt/hermes/docker/nacos_daemon.py
+# Skip the drop when already non-root. Do NOT build the exec'd command by
+# appending "$@" — s6-rc invokes longrun run scripts with the service name
+# as $1 (see e.g. logutil-service-main in the s6-overlay package), so the
+# previous "set -- s6-setuidgid hermes \"$@\"" pattern tacked the literal
+# string "nacos-registrar" onto the command line. s6-setuidgid then tried
+# to exec a program named "nacos-registrar" and failed with "unable to
+# exec nacos-registrar: No such file or directory" on every restart.
+[ "$(id -u)" = 0 ] || exec python /opt/hermes/docker/nacos_daemon.py
+exec s6-setuidgid hermes python /opt/hermes/docker/nacos_daemon.py

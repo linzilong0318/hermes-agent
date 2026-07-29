@@ -32,7 +32,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
 #    && sed -i 's|security.debian.org|mirrors.aliyun.com/debian-security|g' /etc/apt/sources.list.d/debian.sources
 
 RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
-    && sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources
+   && sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources
 
 # update
 RUN apt-get update \
@@ -42,28 +42,52 @@ RUN apt-get update \
         -o Acquire::BrokenProxy=true
 
 # 如果某一步失败，可知道是哪个包
-RUN apt-get install -y --no-install-recommends ca-certificates 
-RUN apt-get install -y --no-install-recommends curl
-RUN apt-get install -y --no-install-recommends iputils-ping
-RUN apt-get install -y --no-install-recommends python3
-RUN apt-get install -y --no-install-recommends python-is-python3
-RUN apt-get install -y --no-install-recommends ripgrep
-RUN apt-get install -y --no-install-recommends ffmpeg
-RUN apt-get install -y --no-install-recommends gcc
-RUN apt-get install -y --no-install-recommends g++
-RUN apt-get install -y --no-install-recommends make
-RUN apt-get install -y --no-install-recommends cmake
-RUN apt-get install -y --no-install-recommends python3-dev
-RUN apt-get install -y --no-install-recommends python3-venv
-RUN apt-get install -y --no-install-recommends libffi-dev
-RUN apt-get install -y --no-install-recommends libolm-dev
-RUN apt-get install -y --no-install-recommends procps
-RUN apt-get install -y --no-install-recommends git
-RUN apt-get install -y --no-install-recommends openssh-client
-RUN apt-get install -y --no-install-recommends docker-cli
-RUN apt-get install -y --no-install-recommends xz-utils
+# RUN apt-get install -y --no-install-recommends ca-certificates 
+# RUN apt-get install -y --no-install-recommends curl
+# RUN apt-get install -y --no-install-recommends iputils-ping
+# RUN apt-get install -y --no-install-recommends python3
+# RUN apt-get install -y --no-install-recommends python-is-python3
+# RUN apt-get install -y --no-install-recommends ripgrep
+# RUN apt-get install -y --no-install-recommends ffmpeg
+# RUN apt-get install -y --no-install-recommends gcc
+# RUN apt-get install -y --no-install-recommends g++
+# RUN apt-get install -y --no-install-recommends make
+# RUN apt-get install -y --no-install-recommends cmake
+# RUN apt-get install -y --no-install-recommends python3-dev
+# RUN apt-get install -y --no-install-recommends python3-venv
+# RUN apt-get install -y --no-install-recommends libffi-dev
+# RUN apt-get install -y --no-install-recommends libolm-dev
+# RUN apt-get install -y --no-install-recommends procps
+# RUN apt-get install -y --no-install-recommends git
+# RUN apt-get install -y --no-install-recommends openssh-client
+# RUN apt-get install -y --no-install-recommends docker-cli
+# RUN apt-get install -y --no-install-recommends xz-utils
 
-RUN rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    iputils-ping \
+    python3 \
+    python-is-python3 \
+    ripgrep \
+    ffmpeg \
+    gcc \
+    g++ \
+    make \
+    cmake \
+    python3-dev \
+    python3-venv \
+    libffi-dev \
+    libolm-dev \
+    procps \
+    git \
+    openssh-client \
+    docker-cli \
+    xz-utils \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# RUN rm -rf /var/lib/apt/lists/*
 
 # ---------- s6-overlay install ----------
 # s6-overlay provides supervision for the main hermes process, the dashboard,
