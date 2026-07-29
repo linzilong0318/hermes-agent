@@ -109,11 +109,25 @@ acp_registry/
 
 # 不需要的skills
 skills/apple/
+skills/autonomous-ai-agents/claude-code/
+skills/autonomous-ai-agents/codex/
+skills/autonomous-ai-agents/opencode/
+skills/creative/
 skills/data-science/
 skills/dogfood/
 skills/email/
 skills/github/
 skills/media/
 skills/mlops/
+skills/note-taking/
+skills/productivity/airtable/
+skills/productivity/google-workspace/
+skills/productivity/maps/
+skills/productivity/notion/
+skills/productivity/petdex/
+skills/productivity/powerpoint/
+skills/productivity/teams-meeting-pipeline/
+skills/research/
 skills/smart-home/
+skills/social-media/
 skills/yuanbao/
