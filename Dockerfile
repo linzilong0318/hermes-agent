@@ -195,9 +195,24 @@ ENV npm_config_install_links=false
 
 RUN npm install --prefer-offline --no-audit
 
-# 使用淘宝镜像加速下载
+# ---------- Playwright: 全功能 Chrome + MCP + Test ----------
+# 使用淘宝镜像加速浏览器二进制下载
 ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/
-RUN npx playwright install --with-deps chromium --only-shell
+
+# 1) 全局安装 playwright、@playwright/test、@playwright/mcp
+#    用 npmmirror 源加速；--no-audit --no-fund 保持安静
+RUN npm install -g \
+        playwright \
+        @playwright/test \
+        @playwright/mcp \
+    --registry=https://registry.npmmirror.com \
+    --no-audit --no-fund
+
+# 2) 安装全功能 Google Chrome（系统级稳定版），含系统依赖
+#    --channel=chrome  -> 安装 Google Chrome 稳定版而非 Playwright 自带 chromium
+#    去掉 --only-shell -> 安装完整浏览器（含 headless shell + 完整 chrome）
+#    --with-deps       -> 自动安装 Chrome 运行所需的系统库
+RUN npx playwright install --with-deps --channel=chrome chromium
 
 RUN npm cache clean --force
 
