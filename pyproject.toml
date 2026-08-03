@@ -305,10 +305,7 @@ all = [
   "hermes-agent[web]",
   "hermes-agent[docx]",
   "hermes-agent[nacos]",
-  "hermes-agent[computer-use]",
-  "hermes-agent[cli]",
-  "hermes-agent[parallel-web]",
-  "hermes-agent[firecrawl]",
+  "hermes-agent[sms]",
 ]
 
 [project.scripts]
