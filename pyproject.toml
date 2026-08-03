@@ -302,12 +302,13 @@ all = [
   "hermes-agent[cli]",
   "hermes-agent[pty]",
   "hermes-agent[mcp]",
-  "hermes-agent[homeassistant]",
-  "hermes-agent[sms]",
-  "hermes-agent[acp]",
-  "hermes-agent[google]",
   "hermes-agent[web]",
-  "hermes-agent[youtube]",
+  "hermes-agent[docx]",
+  "hermes-agent[nacos]",
+  "hermes-agent[computer-use]",
+  "hermes-agent[cli]",
+  "hermes-agent[parallel-web]",
+  "hermes-agent[firecrawl]",
 ]
 
 [project.scripts]
