@@ -271,7 +271,7 @@ youtube = [
 nacos = ["nacos-sdk-python==1.0.0"]
 # Document processing — fork-specific, for backend document handling skills
 # (PDF extraction, docx conversion, markdown-to-pdf).
-docx = ["pymupdf==1.28.0", "pymupdf4llm==1.28.0", "python-docx==1.2.0", "md2pdf==3.1.1"]
+docx = ["pymupdf==1.28.0", "python-docx==1.2.0", "md2pdf==3.1.1"]
 # `hermes dashboard` (localhost SPA + API).  Not in core to keep the default install lean.
 # starlette==1.0.1 pinned for CVE-2026-48710 (BadHost) — fastapi pulls Starlette
 # transitively and pre-1.0.1 is the vulnerable range. See the mcp extra above.

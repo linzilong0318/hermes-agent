@@ -27,34 +27,50 @@ def db(tmp_path):
 
 
 def _seed_modpack_sessions(db):
-    """Create three sessions about a modpack so FTS5 has hits to dedupe."""
+    """Create three sessions about a modpack so FTS5 has hits to dedupe.
+
+    Message timestamps are seeded explicitly (like ``started_at``) so the
+    recency ordering asserted by the sort tests is deterministic — wall-clock
+    appends in a tight loop can collapse onto one clock tick, which makes
+    ``search_messages(sort=...)`` fall back to FTS5 rank ordering instead of
+    timestamp ordering (s_middle's message ranks best there).
+    """
     now = int(time.time())
     # Older session — modpack origin
     db.create_session("s_oldest", source="cli")
     db._conn.execute("UPDATE sessions SET started_at = ?, title = ? WHERE id = ?",
                      (now - 30000, "Building the Modpack", "s_oldest"))
-    db.append_message("s_oldest", role="user", content="Let's build a Minecraft modpack")
-    db.append_message("s_oldest", role="assistant", content="Great. Let me scaffold the modpack repo.")
-    db.append_message("s_oldest", role="user", content="Use NeoForge 1.21.1")
-    db.append_message("s_oldest", role="assistant", content="Done. Modpack repo created with NeoForge 1.21.1.")
-    db.append_message("s_oldest", role="assistant", content="Tier-0 mods installed; modpack smoke test passes.")
+    for i, (role, content) in enumerate([
+        ("user", "Let's build a Minecraft modpack"),
+        ("assistant", "Great. Let me scaffold the modpack repo."),
+        ("user", "Use NeoForge 1.21.1"),
+        ("assistant", "Done. Modpack repo created with NeoForge 1.21.1."),
+        ("assistant", "Tier-0 mods installed; modpack smoke test passes."),
+    ]):
+        db.append_message("s_oldest", role=role, content=content, timestamp=now - 30000 + i)
 
     # Middle session — modpack quest coverage
     db.create_session("s_middle", source="cli")
     db._conn.execute("UPDATE sessions SET started_at = ?, title = ? WHERE id = ?",
                      (now - 15000, "Modpack Quest Coverage", "s_middle"))
-    db.append_message("s_middle", role="user", content="Deep-dive every modpack reference quest guide")
-    db.append_message("s_middle", role="assistant", content="Surveying ATM10 questbook for modpack inspiration.")
-    db.append_message("s_middle", role="user", content="Update the modpack version too")
-    db.append_message("s_middle", role="assistant", content="Modpack version bumped 0.4 → 0.8.5; quest coverage page added.")
+    for i, (role, content) in enumerate([
+        ("user", "Deep-dive every modpack reference quest guide"),
+        ("assistant", "Surveying ATM10 questbook for modpack inspiration."),
+        ("user", "Update the modpack version too"),
+        ("assistant", "Modpack version bumped 0.4 → 0.8.5; quest coverage page added."),
+    ]):
+        db.append_message("s_middle", role=role, content=content, timestamp=now - 15000 + i)
 
     # Newest session — modpack mob spawn fix
     db.create_session("s_newest", source="cli")
     db._conn.execute("UPDATE sessions SET started_at = ?, title = ? WHERE id = ?",
                      (now - 1000, "Modpack Mob Spawn Fix", "s_newest"))
-    db.append_message("s_newest", role="user", content="Fix the modpack mob spawning")
-    db.append_message("s_newest", role="assistant", content="Investigating elite mob gating in the modpack KubeJS.")
-    db.append_message("s_newest", role="assistant", content="Shipped commit b850442. Modpack alternator nerfed too.")
+    for i, (role, content) in enumerate([
+        ("user", "Fix the modpack mob spawning"),
+        ("assistant", "Investigating elite mob gating in the modpack KubeJS."),
+        ("assistant", "Shipped commit b850442. Modpack alternator nerfed too."),
+    ]):
+        db.append_message("s_newest", role=role, content=content, timestamp=now - 1000 + i)
     db._conn.commit()
 
 

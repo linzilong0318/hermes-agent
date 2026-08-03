@@ -763,6 +763,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     system_prompt TEXT,
     project_id TEXT,
     business_user_id TEXT,
+    business_title TEXT,
     parent_session_id TEXT,
     started_at REAL NOT NULL,
     ended_at REAL,
@@ -3119,6 +3120,29 @@ class SessionDB:
             row = cursor.fetchone()
         return row["title"] if row else None
 
+    def set_session_business_title(self, session_id: str, business_title: str) -> bool:
+        """Set the business-facing display title on a session.
+
+        Display-only metadata for API-server / multi-tenant flows; duplicates
+        are allowed (unlike :meth:`set_session_title`, which keeps the
+        single-user CLI title-uniqueness guarantee). ``business_title`` goes
+        through :meth:`sanitize_title` so length/character rules match the
+        existing title field, but no uniqueness check is applied. Empty or
+        whitespace-only values are normalized to None (clearing the field).
+        Returns True if the session was found and updated.
+        """
+        business_title = self.sanitize_title(business_title)
+
+        def _do(conn):
+            cursor = conn.execute(
+                "UPDATE sessions SET business_title = ? WHERE id = ?",
+                (business_title, session_id),
+            )
+            return cursor.rowcount
+
+        rowcount = self._execute_write(_do)
+        return rowcount > 0
+
     def set_session_archived(self, session_id: str, archived: bool) -> bool:
         """Archive or unarchive a session.
 
@@ -3596,7 +3620,7 @@ class SessionDB:
                     ) AS last_active
                 FROM sessions s
                 {where_sql}
-                ORDER BY s.started_at DESC
+                ORDER BY s.started_at DESC, s.id DESC
                 LIMIT ? OFFSET ?
             """
             params.extend([limit, offset])
@@ -3642,8 +3666,9 @@ class SessionDB:
                 merged = dict(s)
                 for key in (
                     "id", "ended_at", "end_reason", "message_count",
-                    "tool_call_count", "title", "last_active", "preview",
-                    "model", "system_prompt", "cwd", "git_branch", "git_repo_root",
+                    "tool_call_count", "title", "business_title", "last_active",
+                    "preview", "model", "system_prompt", "cwd", "git_branch",
+                    "git_repo_root",
                 ):
                     if key in tip_row:
                         merged[key] = tip_row[key]

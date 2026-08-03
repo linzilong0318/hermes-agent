@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     cost_source TEXT,
     pricing_version TEXT,
     title TEXT,
+    business_title TEXT,
     api_call_count INTEGER DEFAULT 0,
     FOREIGN KEY (parent_session_id) REFERENCES sessions(id)
 );

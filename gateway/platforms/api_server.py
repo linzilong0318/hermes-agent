@@ -1812,6 +1812,7 @@ class APIServerAdapter(BasePlatformAdapter):
             "reasoning_tokens", "estimated_cost_usd", "actual_cost_usd",
             "api_call_count", "parent_session_id", "last_active", "preview",
             "_lineage_root_id", "project_id", "business_user_id",
+            "business_title",
         )
         payload = {key: session.get(key) for key in safe_keys if key in session}
         # Avoid exposing full system prompts/model_config through the client API;
@@ -1962,7 +1963,7 @@ class APIServerAdapter(BasePlatformAdapter):
         body, err = await self._read_json_body(request)
         if err:
             return err
-        allowed = {"title", "end_reason"}
+        allowed = {"title", "business_title", "end_reason"}
         unknown = sorted(set(body) - allowed)
         if unknown:
             return web.json_response(_openai_error(f"Unsupported session fields: {', '.join(unknown)}", code="unsupported_session_field"), status=400)
@@ -1973,6 +1974,14 @@ class APIServerAdapter(BasePlatformAdapter):
                 db.set_session_title(session_id, "" if body["title"] is None else str(body["title"]))
             except ValueError as exc:
                 return web.json_response(_openai_error(str(exc), code="invalid_title"), status=400)
+        if "business_title" in body:
+            try:
+                db.set_session_business_title(
+                    session_id,
+                    "" if body["business_title"] is None else str(body["business_title"]),
+                )
+            except ValueError as exc:
+                return web.json_response(_openai_error(str(exc), code="invalid_business_title"), status=400)
         if body.get("end_reason"):
             db.end_session(session_id, str(body["end_reason"]))
         session = db.get_session(session_id) or session

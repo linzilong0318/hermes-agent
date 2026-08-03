@@ -170,6 +170,74 @@ async def test_session_crud_and_message_history(adapter, session_db):
 
 
 @pytest.mark.asyncio
+async def test_session_patch_business_title_roundtrip(adapter, session_db):
+    """PATCH business_title persists it and surfaces it on GET, list, and PATCH
+    responses (display-only metadata for multi-tenant flows; duplicates allowed).
+    """
+    app = _create_session_app(adapter)
+    async with TestClient(TestServer(app)) as cli:
+        create_resp = await cli.post(
+            "/api/sessions", json={"title": "Mobile chat", "project_id": "proj-a"}
+        )
+        assert create_resp.status == 201
+        session_id = (await create_resp.json())["session"]["id"]
+
+        patch_resp = await cli.patch(
+            f"/api/sessions/{session_id}", json={"business_title": "帮我查一下订单"}
+        )
+        assert patch_resp.status == 200
+        patched = await patch_resp.json()
+        assert patched["session"]["business_title"] == "帮我查一下订单"
+        # The existing title field is untouched by business_title patches.
+        assert patched["session"]["title"] == "Mobile chat"
+
+        get_resp = await cli.get(f"/api/sessions/{session_id}")
+        assert get_resp.status == 200
+        assert (await get_resp.json())["session"]["business_title"] == "帮我查一下订单"
+
+        list_resp = await cli.get("/api/sessions?limit=10&offset=0")
+        assert list_resp.status == 200
+        listed = await list_resp.json()
+        assert listed["data"][0]["business_title"] == "帮我查一下订单"
+
+        # Duplicate business titles across sessions are allowed.
+        other_resp = await cli.post("/api/sessions", json={})
+        other_id = (await other_resp.json())["session"]["id"]
+        dup_resp = await cli.patch(
+            f"/api/sessions/{other_id}", json={"business_title": "帮我查一下订单"}
+        )
+        assert dup_resp.status == 200
+        assert (await dup_resp.json())["session"]["business_title"] == "帮我查一下订单"
+
+        # Empty string clears the field (normalized to None).
+        clear_resp = await cli.patch(
+            f"/api/sessions/{session_id}", json={"business_title": ""}
+        )
+        assert clear_resp.status == 200
+        assert (await clear_resp.json())["session"]["business_title"] is None
+
+
+@pytest.mark.asyncio
+async def test_session_patch_business_title_rejects_invalid(adapter, session_db):
+    """Overlong / unprintable business titles are rejected with 400."""
+    session_id = session_db.create_session("bt-session", "api_server")
+    app = _create_session_app(adapter)
+    async with TestClient(TestServer(app)) as cli:
+        resp = await cli.patch(
+            f"/api/sessions/{session_id}", json={"business_title": "x" * 101}
+        )
+        assert resp.status == 400
+        body = await resp.json()
+        assert body["error"]["code"] == "invalid_business_title"
+
+        unsupported = await cli.patch(
+            f"/api/sessions/{session_id}", json={"business_title": "ok", "bogus_field": 1}
+        )
+        assert unsupported.status == 400
+        assert "bogus_field" in (await unsupported.json())["error"]["message"]
+
+
+@pytest.mark.asyncio
 async def test_session_messages_follow_compression_tip(adapter, session_db):
     source_id = session_db.create_session("source-session", "api_server")
     session_db.append_message(source_id, "user", "before compression")
