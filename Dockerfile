@@ -209,10 +209,9 @@ RUN npm install -g \
     --no-audit --no-fund
 
 # 2) 安装全功能 Google Chrome（系统级稳定版），含系统依赖
-#    --channel=chrome  -> 安装 Google Chrome 稳定版而非 Playwright 自带 chromium
 #    去掉 --only-shell -> 安装完整浏览器（含 headless shell + 完整 chrome）
 #    --with-deps       -> 自动安装 Chrome 运行所需的系统库
-RUN npx playwright install --with-deps --channel=chrome chromium
+RUN npx playwright install --with-deps chromium
 
 RUN npm cache clean --force
 
