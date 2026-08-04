@@ -1,0 +1,85 @@
+# =============================================================================
+# 基于 hermes-base 的业务 Dockerfile
+# -----------------------------------------------------------------------------
+# 前置条件：先构建并加载基础镜像
+#   docker build -f Dockerfile.base -t hermes-base:latest .
+#   （或 docker load -i hermes-base.tar）
+#
+# 本镜像只做与业务代码相关的部分：
+#   - npm install（根 monorepo 依赖）
+#   - uv sync（Python 依赖）
+#   - 前端构建（web / ui-tui）
+#   - 拷源码 + editable install
+#   - s6 服务配置 + entrypoint
+# =============================================================================
+
+FROM hermes-base:latest
+
+# ---------- Layer-cached npm 依赖安装 ----------
+COPY package.json package-lock.json ./
+COPY web/package.json web/
+COPY ui-tui/package.json ui-tui/
+COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
+COPY apps/shared/ apps/shared/
+
+ENV npm_config_install_links=false
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --prefer-offline --no-audit
+
+# ---------- Layer-cached Python 依赖安装 ----------
+COPY pyproject.toml uv.lock ./
+RUN touch ./README.md
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --extra all
+
+# ---------- 前端构建 ----------
+COPY web/ web/
+COPY ui-tui/ ui-tui/
+COPY apps/shared/ apps/shared/
+RUN cd web && npm run build
+RUN cd ui-tui && npm run build
+
+# ---------- 源码 ----------
+COPY --link --chmod=a+rX,go-w . .
+
+# ---------- editable install ----------
+RUN uv pip install --no-cache-dir --no-deps -e "."
+
+# ---------- exec shim + install-method stamp ----------
+USER root
+RUN mkdir -p /opt/hermes/bin && \
+    cp /opt/hermes/docker/hermes-exec-shim.sh /opt/hermes/bin/hermes && \
+    chmod 0755 /opt/hermes/bin/hermes && \
+    printf 'docker\n' > /opt/hermes/.install_method
+
+# ---------- git revision ----------
+ARG HERMES_GIT_SHA=
+RUN if [ -n "${HERMES_GIT_SHA}" ]; then \
+        printf '%s\n' "${HERMES_GIT_SHA}" > /opt/hermes/.hermes_build_sha; \
+    fi
+
+# ---------- s6-overlay 服务配置 ----------
+COPY docker/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
+
+RUN mkdir -p /etc/cont-init.d && \
+    printf '#!/command/with-contenv sh\nexec /opt/hermes/docker/stage2-hook.sh\n' \
+        > /etc/cont-init.d/01-hermes-setup && \
+    chmod +x /etc/cont-init.d/01-hermes-setup
+COPY --chmod=0755 docker/cont-init.d/015-supervise-perms /etc/cont-init.d/015-supervise-perms
+COPY --chmod=0755 docker/cont-init.d/02-reconcile-profiles /etc/cont-init.d/02-reconcile-profiles
+
+# ---------- Runtime ENV ----------
+ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
+ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
+ENV HERMES_HOME=/opt/data
+ENV HERMES_WRITE_SAFE_ROOT=/opt/data
+ENV HERMES_DISABLE_LAZY_INSTALLS=1
+ENV HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
+ENV PATH="/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
+
+RUN mkdir -p /opt/data
+VOLUME [ "/opt/data" ]
+
+ENTRYPOINT [ "/init", "/opt/hermes/docker/main-wrapper.sh" ]
+CMD [ ]
