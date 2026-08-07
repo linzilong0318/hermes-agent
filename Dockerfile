@@ -183,7 +183,7 @@ ENV PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/
 RUN npm install -g \
         playwright \
         @playwright/test \
-        @playwright/mcp \
+#        @playwright/mcp \
     --registry=https://registry.npmmirror.com \
     --no-audit --no-fund
 
