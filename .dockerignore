@@ -101,7 +101,7 @@ plans/
 acp_registry/
 
 # Repo-level dotfiles that are git-only or dev-tooling config
-.env.example
+# .env.example
 .envrc
 .gitattributes
 .hadolint.yaml
